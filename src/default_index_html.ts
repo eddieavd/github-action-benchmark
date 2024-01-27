@@ -127,6 +127,31 @@ export const DEFAULT_INDEX_HTML = String.raw`<!DOCTYPE html>
         };
 
         function init() {
+          function collectBenches( entries )
+          {
+            const map = new Map();
+            for( const entry of entries )
+            {
+              const { commit, date, tool, benches } = entry;
+              for( const bench of benches )
+              {
+                const result = { commit, date, tool, bench };
+
+                const bm_name = result.bench.name.split( '/' )[ 0 ];
+                const arr = map.get( bm_name );
+
+                if( arr === undefined )
+                {
+                  map.set( bm_name, [result] );
+                }
+                else
+                {
+                  arr.push( result );
+                }
+              }
+            }
+            return map;
+          }
           function collectBenchesPerTestCase(entries) {
             const map = new Map();
             for (const entry of entries) {
@@ -164,10 +189,132 @@ export const DEFAULT_INDEX_HTML = String.raw`<!DOCTYPE html>
           // Prepare data points for charts
           return Object.keys(data.entries).map(name => ({
             name,
-            dataSet: collectBenchesPerTestCase(data.entries[name]),
+            dataSet: collectBenches(data.entries[name]),
           }));
         }
 
+        function renderCombined( dataSets )
+        {
+          function getChartData( benchmarks )
+          {
+            const bmname = benchmarks[ 0 ].bench.name.split( '/' )[ 0 ];
+
+            const values = [];
+            const labels = [];
+
+            for( const bm of benchmarks )
+            {
+              const label = bm.bench.name.split( '/' )[ 1 ];
+              const value = bm.bench.value;
+
+              labels.push( label );
+              values.push( value );
+            }
+            const chartdata = {
+              labels: labels,
+              datasets: [{
+                label: "idk",
+                data: values,
+                borderWidth: 1
+              }]
+            };
+            return chartdata;
+          }
+          function renderGraph( parent, benchmark )
+          {
+            for( const bm of benchmark.entries() )
+            {
+              const canvas = document.createElement('canvas');
+              canvas.className = 'benchmark-chart';
+              parent.appendChild(canvas);
+              const color = toolColors[bm[ 1 ].length > 0 ? bm[ 1 ][0].tool : '_'];
+
+              const data = getChartData( bm[ 1 ] );
+              const options = {
+                scales: {
+                  xAxes: [
+                    {
+                      scaleLabel: {
+                        display: true,
+                        labelString: 'benchmark',
+                      },
+                    }
+                  ],
+                  yAxes: [
+                    {
+                      scaleLabel: {
+                        display: true,
+                        labelString: bm[ 1 ].length > 0 ? bm[ 1 ][0].bench.unit : '',
+                      },
+                      ticks: {
+                        beginAtZero: true,
+                      }
+                    }
+                  ],
+                },
+                tooltips: {
+                  callbacks: {
+                    afterTitle: items => {
+                      const {index} = items[0];
+                      const data = bm[ 1 ][index];
+                      return '\n' + data.commit.message + '\n\n' + data.commit.timestamp + ' committed by @' + data.commit.committer.username + '\n';
+                    },
+                    label: item => {
+                      let label = item.value;
+                      const { range, unit } = bm[ 1 ][item.index].bench;
+                      label += ' ' + unit;
+                      if (range) {
+                        label += ' (' + range + ')';
+                      }
+                      return label;
+                    },
+                    afterLabel: item => {
+                      const { extra } = bm[ 1 ][item.index].bench;
+                      return extra ? '\n' + extra : '';
+                    }
+                  }
+                },
+                onClick: (_mouseEvent, activeElems) => {
+                  if (activeElems.length === 0) {
+                    return;
+                  }
+                  // XXX: Undocumented. How can we know the index?
+                  const index = activeElems[0]._index;
+                  const url = bm[ 1 ][index].commit.url;
+                  window.open(url, '_blank');
+                },
+              };
+
+              new Chart(canvas, {
+                type: 'line',
+                data,
+                options,
+              });
+            }
+          }
+          function renderBenchSet(name, benchSet, main) {
+            const setElem = document.createElement('div');
+            setElem.className = 'benchmark-set';
+            main.appendChild(setElem);
+
+            const nameElem = document.createElement('h1');
+            nameElem.className = 'benchmark-title';
+            nameElem.textContent = name;
+            setElem.appendChild(nameElem);
+
+            const graphsElem = document.createElement('div');
+            graphsElem.className = 'benchmark-graphs';
+            setElem.appendChild(graphsElem);
+
+            renderGraph( graphsElem, benchSet );
+          }
+
+          const main = document.getElementById('main');
+          for (const {name, dataSet} of dataSets) {
+            renderBenchSet(name, dataSet, main);
+          }
+        }
+        
         function renderAllChars(dataSets) {
 
           function renderGraph(parent, name, dataset) {
@@ -274,7 +421,7 @@ export const DEFAULT_INDEX_HTML = String.raw`<!DOCTYPE html>
           }
         }
 
-        renderAllChars(init()); // Start
+        renderCombined(init()); // Start
       })();
     </script>
   </body>
