@@ -125,6 +125,8 @@ export const DEFAULT_INDEX_HTML = String.raw`<!DOCTYPE html>
           customSmallerIsBetter: '#ff3838',
           _: '#333333'
         };
+        const colors    = [ "#3496e4", "#fd5b7b", "#45b7b7", "#ff9642", "#8d5afb", "#fec855", "#c2c4c8" ];
+        const colors_bg = [ "#3496e460", "#fd5b7b60", "#45b7b760", "#ff964260", "#8d5afb60", "#fec85560", "#c2c4c860" ];
 
         function init() {
           function collectBenches( entries )
@@ -137,7 +139,7 @@ export const DEFAULT_INDEX_HTML = String.raw`<!DOCTYPE html>
               {
                 const result = { commit, date, tool, bench };
 
-                const bm_name = result.bench.name.split( '/' )[ 0 ];
+                const bm_name = result.bench.name.split( '<' )[ 0 ];
                 const arr = map.get( bm_name );
 
                 if( arr === undefined )
@@ -147,22 +149,6 @@ export const DEFAULT_INDEX_HTML = String.raw`<!DOCTYPE html>
                 else
                 {
                   arr.push( result );
-                }
-              }
-            }
-            return map;
-          }
-          function collectBenchesPerTestCase(entries) {
-            const map = new Map();
-            for (const entry of entries) {
-              const {commit, date, tool, benches} = entry;
-              for (const bench of benches) {
-                const result = { commit, date, tool, bench };
-                const arr = map.get(bench.name);
-                if (arr === undefined) {
-                  map.set(bench.name, [result]);
-                } else {
-                  arr.push(result);
                 }
               }
             }
@@ -197,26 +183,46 @@ export const DEFAULT_INDEX_HTML = String.raw`<!DOCTYPE html>
         {
           function getChartData( benchmarks )
           {
-            const bmname = benchmarks[ 0 ].bench.name.split( '/' )[ 0 ];
+            const labels = new Set();
 
-            const values = [];
-            const labels = [];
-
-            for( const bm of benchmarks )
+            const instantiations = new Map();
+            for( const entry of benchmarks )
             {
-              const label = bm.bench.name.split( '/' )[ 1 ];
-              const value = bm.bench.value;
+              const name = entry.bench.name.split( '/' )[ 0 ];
+              const arr = instantiations.get( name );
 
-              labels.push( label );
-              values.push( value );
+              if( arr === undefined )
+              {
+                instantiations.set( name, [entry] );
+              }
+              else
+              {
+                arr.push( entry );
+              }
+            }
+            let col_idx = 0;
+            const chartsets = [];
+            for( const entry of instantiations )
+            {
+              const values = [];
+              for( const bm of entry[1] )
+              {
+                values.push( bm.bench.value );
+                labels.add( bm.bench.name.split( '/' )[ 1 ] );
+              }
+              const cset = {
+                label: entry[1][0].bench.name.split( '/' )[ 0 ],
+                data: values,
+                borderWidth: 1,
+                borderColor: colors[ col_idx ],
+                backgroundColor: colors_bg[ col_idx ]
+              };
+              chartsets.push( cset );
+              col_idx = ( col_idx + 1 ) % colors.length;
             }
             const chartdata = {
-              labels: labels,
-              datasets: [{
-                label: "idk",
-                data: values,
-                borderWidth: 1
-              }]
+              labels: Array.from( labels ),
+              datasets: chartsets
             };
             return chartdata;
           }
@@ -314,113 +320,6 @@ export const DEFAULT_INDEX_HTML = String.raw`<!DOCTYPE html>
             renderBenchSet(name, dataSet, main);
           }
         }
-        
-        function renderAllChars(dataSets) {
-
-          function renderGraph(parent, name, dataset) {
-            const canvas = document.createElement('canvas');
-            canvas.className = 'benchmark-chart';
-            parent.appendChild(canvas);
-
-            const color = toolColors[dataset.length > 0 ? dataset[0].tool : '_'];
-            const data = {
-              labels: dataset.map(d => d.commit.id.slice(0, 7)),
-              datasets: [
-                {
-                  label: name,
-                  data: dataset.map(d => d.bench.value),
-                  borderColor: color,
-                  backgroundColor: color + '60', // Add alpha for #rrggbbaa
-                }
-              ],
-            };
-            const options = {
-              scales: {
-                xAxes: [
-                  {
-                    scaleLabel: {
-                      display: true,
-                      labelString: 'commit',
-                    },
-                  }
-                ],
-                yAxes: [
-                  {
-                    scaleLabel: {
-                      display: true,
-                      labelString: dataset.length > 0 ? dataset[0].bench.unit : '',
-                    },
-                    ticks: {
-                      beginAtZero: true,
-                    }
-                  }
-                ],
-              },
-              tooltips: {
-                callbacks: {
-                  afterTitle: items => {
-                    const {index} = items[0];
-                    const data = dataset[index];
-                    return '\n' + data.commit.message + '\n\n' + data.commit.timestamp + ' committed by @' + data.commit.committer.username + '\n';
-                  },
-                  label: item => {
-                    let label = item.value;
-                    const { range, unit } = dataset[item.index].bench;
-                    label += ' ' + unit;
-                    if (range) {
-                      label += ' (' + range + ')';
-                    }
-                    return label;
-                  },
-                  afterLabel: item => {
-                    const { extra } = dataset[item.index].bench;
-                    return extra ? '\n' + extra : '';
-                  }
-                }
-              },
-              onClick: (_mouseEvent, activeElems) => {
-                if (activeElems.length === 0) {
-                  return;
-                }
-                // XXX: Undocumented. How can we know the index?
-                const index = activeElems[0]._index;
-                const url = dataset[index].commit.url;
-                window.open(url, '_blank');
-              },
-            };
-
-            new Chart(canvas, {
-              type: 'line',
-              data,
-              options,
-            });
-          }
-
-          function renderBenchSet(name, benchSet, main) {
-            const setElem = document.createElement('div');
-            setElem.className = 'benchmark-set';
-            main.appendChild(setElem);
-
-            const nameElem = document.createElement('h1');
-            nameElem.className = 'benchmark-title';
-            nameElem.textContent = name;
-            setElem.appendChild(nameElem);
-
-            const graphsElem = document.createElement('div');
-            graphsElem.className = 'benchmark-graphs';
-            setElem.appendChild(graphsElem);
-
-            for (const [benchName, benches] of benchSet.entries()) {
-              renderGraph(graphsElem, benchName, benches)
-            }
-          }
-
-          const main = document.getElementById('main');
-          for (const {name, dataSet} of dataSets) {
-            renderBenchSet(name, dataSet, main);
-          }
-        }
-
         renderCombined(init()); // Start
       })();
     </script>
